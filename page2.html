@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carve A Pumpkin</title>
+<style>
+* { box-sizing: border-box; }
+body {
+    margin: 0;
+    min-height: 100vh;
+    background: #323;
+    color: whitesmoke;
+    font-family: Arial, sans-serif;
+    text-align: center;
+}
+h1 { margin: 26px 12px 10px; }
+p { color: #d4c4b2; padding: 0 16px; }
+.tools {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    margin: 20px 12px;
+}
+button, select {
+    border: 1px solid #665246;
+    border-radius: 10px;
+    padding: 12px 16px;
+    background: #382c35;
+    color: #fff4df;
+    font-size: 16px;
+    cursor: pointer;
+}
+button:hover { background: #55404a; }
+canvas {
+    display: block;
+    width: min(96vw, 700px);
+    height: auto;
+    margin: auto;
+    touch-action: none;
+    cursor: crosshair;
+}
+.hint { font-size: 14px; }
+</style>
+</head>
+<body>
+<h1>🎃 Carve Your Pumpkin</h1>
+<p>Draw around a shape, then release to cut it out!</p>
+
+<div class="tools">
+    <select id="mode" aria-label="Carving tool">
+        <option value="shape">Cut out a shape</option>
+        <option value="brush">Freehand carving</option>
+    </select>
+    <button id="undo">↶ Undo</button>
+    <button id="clear">Reset</button>
+    <button id="light">🕯️ Candle: Off</button>
+    <button id="save">Save picture</button>
+</div>
+
+<canvas id="canvas" width="800" height="650"
+        aria-label="Pumpkin carving workspace"></canvas>
+<p class="hint">Try triangle eyes, a zigzag mouth, or your own design.</p>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const mode = document.getElementById("mode");
+
+let cuts = [];
+let points = [];
+let drawing = false;
+let candle = false;
+let activeTool = "shape";
+
+const pumpkin = new Path2D();
+pumpkin.moveTo(400, 140);
+pumpkin.bezierCurveTo(270, 100, 95, 165, 100, 360);
+pumpkin.bezierCurveTo(95, 525, 235, 605, 400, 570);
+pumpkin.bezierCurveTo(565, 605, 705, 525, 700, 360);
+pumpkin.bezierCurveTo(705, 165, 530, 100, 400, 140);
+pumpkin.closePath();
+
+function trace(list) {
+    ctx.beginPath();
+    list.forEach((p, i) => {
+        if (i === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+    });
+}
+
+function paintCut(cut) {
+    trace(cut.points);
+    ctx.fillStyle = candle ? "#ffe591" : "#21150e";
+    ctx.strokeStyle = ctx.fillStyle;
+    ctx.lineWidth = 17;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    if (candle) {
+        ctx.shadowColor = "#ffad24";
+        ctx.shadowBlur = 24;
+    }
+
+    if (cut.tool === "shape") {
+        ctx.closePath();
+        ctx.fill();
+    } else {
+        // A tiny line makes a single tap visible.
+        if (cut.points.length === 1) {
+            const p = cut.points[0];
+            ctx.lineTo(p.x + 0.1, p.y);
+        }
+        ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+}
+
+function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Ground shadow.
+    ctx.save();
+    ctx.fillStyle = "#120f18";
+    ctx.filter = "blur(16px)";
+    ctx.beginPath();
+    ctx.ellipse(400, 595, 275, 22, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Curved stem.
+    ctx.beginPath();
+    ctx.moveTo(372, 157);
+    ctx.bezierCurveTo(378, 113, 364, 87, 383, 49);
+    ctx.lineTo(425, 58);
+    ctx.bezierCurveTo(404, 91, 427, 118, 427, 158);
+    ctx.closePath();
+    ctx.fillStyle = "#526339";
+    ctx.fill();
+    ctx.strokeStyle = "#303b22";
+    ctx.lineWidth = 7;
+    ctx.stroke();
+
+    // Pumpkin skin.
+    const skin = ctx.createRadialGradient(315, 240, 20, 400, 370, 360);
+    skin.addColorStop(0, "#ffbb40");
+    skin.addColorStop(0.55, "#ef8217");
+    skin.addColorStop(1, "#a9440b");
+    ctx.fillStyle = skin;
+    ctx.fill(pumpkin);
+
+    ctx.save();
+    ctx.clip(pumpkin);
+
+    // Rounded ribs.
+    for (const offset of [-220, -125, 0, 125, 220]) {
+        ctx.beginPath();
+        ctx.moveTo(400 + offset * 0.4, 136);
+        ctx.bezierCurveTo(
+            400 + offset * 1.35, 250,
+            400 + offset * 1.35, 465,
+            400 + offset * 0.45, 585
+        );
+        ctx.strokeStyle = "rgba(120, 46, 4, .19)";
+        ctx.lineWidth = 12;
+        ctx.stroke();
+    }
+
+    cuts.forEach(paintCut);
+
+    if (drawing && points.length) {
+        if (activeTool === "brush") {
+            paintCut({ points, tool: activeTool });
+        } else {
+            trace(points);
+            ctx.closePath();
+            ctx.fillStyle = "rgba(40, 20, 5, .3)";
+            ctx.fill();
+            ctx.strokeStyle = "#fff7cd";
+            ctx.lineWidth = 3;
+            ctx.setLineDash([7, 5]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+    }
+
+    ctx.restore();
+}
+
+function position(e) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+        x: (e.clientX - rect.left) * canvas.width / rect.width,
+        y: (e.clientY - rect.top) * canvas.height / rect.height
+    };
+}
+
+canvas.addEventListener("pointerdown", e => {
+    if (drawing || (e.pointerType === "mouse" && e.button !== 0)) return;
+    const p = position(e);
+    if (!ctx.isPointInPath(pumpkin, p.x, p.y)) return;
+
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+    activeTool = mode.value;
+    drawing = true;
+    points = [p];
+    render();
+});
+
+canvas.addEventListener("pointermove", e => {
+    if (!drawing) return;
+    const p = position(e);
+    const last = points[points.length - 1];
+    if (Math.hypot(p.x - last.x, p.y - last.y) < 2) return;
+    points.push(p);
+    render();
+});
+
+function finish() {
+    if (!drawing) return;
+    if (activeTool === "brush" || points.length >= 3) {
+        cuts.push({ tool: activeTool, points: [...points] });
+    }
+    drawing = false;
+    points = [];
+    render();
+}
+
+canvas.addEventListener("pointerup", finish);
+canvas.addEventListener("lostpointercapture", finish);
+canvas.addEventListener("pointercancel", () => {
+    drawing = false;
+    points = [];
+    render();
+});
+
+document.getElementById("undo").onclick = () => {
+    cuts.pop();
+    render();
+};
+
+document.getElementById("clear").onclick = () => {
+    cuts = [];
+    render();
+};
+
+document.getElementById("light").onclick = e => {
+    candle = !candle;
+    e.target.textContent = "🕯️ Candle: " + (candle ? "On" : "Off");
+    render();
+};
+
+document.getElementById("save").onclick = () => {
+    const picture = document.createElement("canvas");
+    picture.width = canvas.width;
+    picture.height = canvas.height;
+    const pctx = picture.getContext("2d");
+    pctx.fillStyle = "#211b29";
+    pctx.fillRect(0, 0, picture.width, picture.height);
+    pctx.drawImage(canvas, 0, 0);
+
+    const link = document.createElement("a");
+    link.download = "my-pumpkin.png";
+    link.href = picture.toDataURL("image/png");
+    link.click();
+};
+
+render();
+</script>
+</body>
+</html>
